@@ -80,11 +80,11 @@ All optional; leaving them out renders exactly as before.
 | `stub: true` | `fritzbox` | ISP box you don't manage (ONT, ISP modem): a small box with `name · type` and `model`, WAN drops straight to the firewall, no port row |
 | `short` | `switch.ports[]` | label under the port instead of `to` (for long device names) |
 | a port with neither `untagged` nor `tagged` (and `to` not `free`/`rescue`) | `switch.ports[]` | drawn grey: in use, VLANs unknown |
-| RJ45 port count | `switch.ports[]` | `port_x()` counts the non-`sfpp` ports, so switches with more or fewer than 8 RJ45 ports line up |
+| RJ45 port count | `switch.ports[]` | `port_x()` counts the non-`sfpp` ports, so the SFP+ ports follow the last RJ45 port; more than ~9 RJ45 ports need a wider card (`bw`), an assert tells you |
 | `kind: VM` | DMZ guests | chip shows `VM <id>` instead of `CT <id>` |
-| `node` | DMZ guests | cluster member the guest runs on, third line on the right |
+| `node` | DMZ guests | cluster member the guest runs on, after the id (`VM 101 · pve2`) |
 | `vlan` | DMZ guests | when it differs from the DMZ VLAN, a bar in that VLAN's color on the chip's left edge |
-| `vlans: [..]` | `ssids[]` | PPSK (one SSID, the password picks the VLAN): `PPSK` + one dot per VLAN instead of the VLAN tag |
+| `vlans: [..]` | `ssids[]` | PPSK (one SSID, the password picks the VLAN): `PPSK` + one dot per VLAN instead of the VLAN tag; `vlan` is then optional (it only colors the dot left of the name) |
 | `warn` | pools | usage bar turns orange at/above this percentage (default 85) |
 
 Pool disk groups that don't fit next to each other wrap to a second row; the assert tells you how tall the pool box must be.

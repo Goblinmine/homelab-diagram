@@ -18,7 +18,13 @@ import sys
 import yaml
 
 ROOT = pathlib.Path(__file__).resolve().parent
-INV_FILE = pathlib.Path(sys.argv[sys.argv.index("--inventory") + 1]) if "--inventory" in sys.argv else ROOT / "inventory.yaml"
+if "--inventory" in sys.argv:
+    _i = sys.argv.index("--inventory") + 1
+    if _i >= len(sys.argv) or sys.argv[_i].startswith("--"):
+        raise SystemExit("--inventory needs a file")
+    INV_FILE = pathlib.Path(sys.argv[_i])
+else:
+    INV_FILE = ROOT / "inventory.yaml"
 INV = yaml.safe_load(INV_FILE.read_text())
 ICONS = ROOT / "icons"
 OUT = ROOT / "out"
@@ -87,7 +93,8 @@ def _font_file(pattern):
 
 try:
     from PIL import ImageFont
-    _FONTS = {700: _font_file("Fira Sans:bold"), 600: _font_file("Fira Sans:semibold")}
+    _FONTS = {700: _font_file("Fira Sans:bold"), 600: _font_file("Fira Sans:semibold"),
+              400: _font_file("Fira Sans:regular")}
     if not all(_FONTS.values()):
         raise RuntimeError("Fira Sans not found")
     _FCACHE = {}
@@ -387,7 +394,7 @@ S.label(CX + 10, (cy0 + 58 + fy - TAB) / 2 + 5, "↑ " + ISPD["up"], "#c3cdd9", 
 FBX, FBW = CX - 302, 620                   # coax port sits right under the internet line (x = CX)
 FB_PORTS = [] if fb.get("stub") else [("Cable", None)] + [(sp, None) for sp in fb["lan_ports"]]
 if fb.get("stub"):                         # ISP-managed box (ONT, modem): small box, WAN goes straight down
-    S.line([(CX, cy0 + 58), (CX, fy + fh - 30)], C["wan"], SPEED_W["1G"])
+    S.line([(CX, cy0 + 58), (CX, fy + fh)], C["wan"], SPEED_W["1G"])
     S.rect(CX - 170, fy + fh - 92, 340, 62, rx=12, fill=PANEL, stroke=C["wan"] + "aa", sw=1.6)
     S.text(CX, fy + fh - 66, f"{fb['name']} · {fb['type']}", 16, TEXT, 600, "middle")
     S.text(CX, fy + fh - 46, fb["model"], 12.5, MUTED, 400, "middle")
@@ -481,6 +488,8 @@ for i, p in enumerate(swc["ports"]):
     ticks(port_x(i), y + 41, unt, tagged)
     S.text(port_x(i), by + bh - 9, p.get("short", p["to"]), 10.5, FAINT if p["to"] in ("free", "rescue") else MUTED, 500, "middle")
     PORTS[p["name"]] = port_x(i)
+assert port_x(len(swc["ports"]) - 1) + 40 <= bx + bw, \
+    f"switch ports run past the card: widen bw (now {bw}) or reduce PITCH"
 
 # ================================================================ device row
 DY = 1234
@@ -507,7 +516,7 @@ x, w, h = device("ap", AP)
 S.text(x + 18, DY + 96, "SSIDs", 11, FAINT, 600, ls=1.2)
 for i, s in enumerate(INV["ssids"]):
     name = s["redacted"] if (RED["ssid_names"] and not UNREDACTED) else s["name"]
-    col = C[s["vlan"]]
+    col = C[s["vlan"]] if "vlan" in s else TRUNK     # PPSK SSIDs may list only `vlans`
     sy = DY + 106 + i * 17
     S.add(f'<circle cx="{x+24}" cy="{sy+5}" r="4" fill="{col}"/>')
     S.text(x + 36, sy + 9, name, 13, TEXT, 500)
@@ -706,8 +715,13 @@ def pool_box(p, x, y, w, h):
     S.rect(x + 14, y + 34, max(bw_ * p["pct"] / 100, 8), 8, rx=4, fill=barc, stroke="none", sw=0)
     gx0 = x + 14
     for grp in p["groups"]:
-        need = grp["count"] * ({"hdd": 30, "ssd": 44}.get(grp["kind"], 96) + 7)
-        if gx0 > x + 14 and gx0 + need > x + w - 14:     # doesn't fit: next row
+        disks = grp["count"] * ({"hdd": 30, "ssd": 44}.get(grp["kind"], 96) + 7)
+        texts = max(measure(grp["label"], 12.5, 600), measure(grp["sub"], 11.5, 400),
+                    measure(grp.get("sub2", ""), 11.5, 400))                      # real font widths
+        if grp["kind"] == "nvme":                        # labels sit right of the stick
+            disks, texts = disks, disks + 8 + texts
+        # disks must stay inside the padding; labels may run into it, up to the box edge
+        if gx0 > x + 14 and (gx0 + disks > x + w - 14 or gx0 + texts > x + w - 4):   # next row
             gx0, y = x + 14, y + 110
             assert y + 156 <= y0 + h, f"pool {p['name']}: disk groups wrap to a 2nd row, give the pool box {y + 156 - y0} px"
         dx = gx0
@@ -780,10 +794,9 @@ ZONE_VLAN = "20"
 def chip_ids(g, x, y, w, h):
     """Right-hand column of a chip: '<kind> <id>', IP (or .id), optional node; VLAN bar if not in the zone VLAN.
     Optional guest fields: kind (default CT), node (cluster member it runs on), vlan."""
-    S.text(x + w - 12, y + 21, f"{g.get('kind', 'CT')} {g['id']}", 12, FAINT, 500, "end", mono=True)
+    node = f" · {g['node']}" if g.get("node") else ""          # on the id line, clear of the hostname
+    S.text(x + w - 12, y + 21, f"{g.get('kind', 'CT')} {g['id']}{node}", 12, FAINT, 500, "end", mono=True)
     S.text(x + w - 12, y + 37, g.get("ip", f".{g['id']}"), 11, FAINT, 500, "end", mono=True)
-    if g.get("node"):
-        S.text(x + w - 12, y + 53, g["node"], 11, FAINT, 500, "end", mono=True)
     if g.get("vlan", ZONE_VLAN) != ZONE_VLAN:
         S.add(f'<rect x="{x}" y="{y+8}" width="4" height="{h-16}" rx="2" fill="{C[g["vlan"]]}"/>')
 
