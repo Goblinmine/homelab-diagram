@@ -28,14 +28,26 @@ The script behind the network diagram of my homelab that I posted on r/homelab. 
 
 ## Requirements
 
-- Python 3 with **PyYAML** (Pillow is optional, but makes label widths exact)
+- Python 3.9+ with **PyYAML** and **Pillow** (Pillow is optional, but makes label widths exact). Both are declared in `pyproject.toml`, so [uv](https://docs.astral.sh/uv/) installs them for you — see below.
 - **rsvg-convert** (librsvg) for the PNG
 - the fonts **Fira Sans** and **Fira Code** installed (found via fontconfig)
 
 On Arch/CachyOS: `pacman -S python-yaml python-pillow librsvg ttf-fira-sans ttf-fira-code`
 On Debian/Ubuntu: `apt install python3-yaml python3-pil librsvg2-bin fonts-firacode` plus Fira Sans
+On macOS: `brew install librsvg`, then install the Fira fonts from [mozilla/Fira](https://github.com/mozilla/Fira) (e.g. `brew install --cask font-fira-code font-fira-sans`, if your Homebrew has them).
 
 ## Usage
+
+With [uv](https://docs.astral.sh/uv/) (creates `.venv` and installs the pinned dependencies from `uv.lock`):
+
+```bash
+uv sync                         # once: create .venv, install PyYAML + Pillow
+uv run fetch_icons.py           # downloads the service icons into icons/ (once)
+uv run build.py                 # → out/homelab.svg + out/homelab.png (redacted)
+uv run build.py --unredacted    # → out/homelab-unredacted.svg + .png
+```
+
+Or with a plain Python install of PyYAML:
 
 ```bash
 python3 fetch_icons.py          # downloads the service icons into icons/ (once)
