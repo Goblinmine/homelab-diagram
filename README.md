@@ -28,7 +28,7 @@ The script behind the network diagram of my homelab that I posted on r/homelab. 
 
 ## Requirements
 
-- Python 3.9+ with **PyYAML** and **Pillow** (Pillow is optional, but makes label widths exact). Both are declared in `pyproject.toml`, so [uv](https://docs.astral.sh/uv/) installs them for you — see below.
+- Python 3.11+ with **PyYAML** and **Pillow** (Pillow is optional, but makes label widths exact). Both are declared in `pyproject.toml`, so [uv](https://docs.astral.sh/uv/) installs them for you — see below.
 - **rsvg-convert** (librsvg) for the PNG
 - the fonts **Fira Sans** and **Fira Code** installed (found via fontconfig)
 
