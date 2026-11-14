@@ -27,7 +27,7 @@ Hardcoded in `build.py` (you will almost certainly edit these):
 | other-VLAN guests | `og["truenas"]`, `og["haos"]`, `og["unifi"]`, `og["bliss"]` drawn one below another with fixed heights | different VMs outside the DMZ |
 | `# DMZ zone`: `NCOL` and the `column(i, [group names])` calls | which DMZ group goes into which column | rebalance columns for their groups |
 | `# media pipeline` | an *arr/Jellyfin explainer panel | remove the whole section if they don't want it, or reuse it for another flow |
-| `W, H` | canvas size | grow `H` when content gets taller (the asserts at the end tell you) |
+| `W` | canvas width | `H` is computed at the end from the lowest panel (`# canvas height`); adjust that line if you add a panel below terra |
 
 Safety nets: `assert`s at the end of sections fail loudly when a column/panel overflows. Text widths come from `measure()` (Pillow + the real font) or the rough estimate `tw()`. Always check visually.
 
@@ -71,9 +71,28 @@ Useful read-only commands if you have access (ask first): Proxmox `pct list`, `q
 - ZFS sizes in TiB/GiB (what ZFS reports), disk sizes in TB as sold.
 - Keep text plain and short; no marketing-style subtitles.
 
+### Optional inventory fields
+
+All optional; leaving them out renders exactly as before.
+
+| Field | Where | Effect |
+|---|---|---|
+| `stub: true` | `fritzbox` | ISP box you don't manage (ONT, ISP modem): a small box with `name · type` and `model`, WAN drops straight to the firewall, no port row |
+| `short` | `switch.ports[]` | label under the port instead of `to` (for long device names) |
+| a port with neither `untagged` nor `tagged` (and `to` not `free`/`rescue`) | `switch.ports[]` | drawn grey: in use, VLANs unknown |
+| RJ45 port count | `switch.ports[]` | `port_x()` counts the non-`sfpp` ports, so the SFP+ ports follow the last RJ45 port; more than ~9 RJ45 ports need a wider card (`bw`), an assert tells you |
+| `kind: VM` | DMZ guests | chip shows `VM <id>` instead of `CT <id>` |
+| `node` | DMZ guests | cluster member the guest runs on, after the id (`VM 101 · pve2`) |
+| `vlan` | DMZ guests | when it differs from the DMZ VLAN, a bar in that VLAN's color on the chip's left edge |
+| `vlans: [..]` | `ssids[]` | PPSK (one SSID, the password picks the VLAN): `PPSK` + one dot per VLAN instead of the VLAN tag; `vlan` is then optional (it only colors the dot left of the name) |
+| `warn` | pools | usage bar turns orange at/above this percentage (default 85) |
+
+Pool disk groups that don't fit next to each other wrap to a second row; the assert tells you how tall the pool box must be.
+
 ## Gotchas
 
 - Fonts: **Fira Sans** and **Fira Code** must be installed, otherwise rsvg falls back and every width calculation is off.
 - jsDelivr sometimes refuses single icons with 403; `fetch_icons.py` falls back to raw GitHub.
-- When content grows, grow `H` (and section heights like `ZH`), the asserts tell you where.
+- When content grows, grow the section heights (`ZH`, pool boxes, …); the asserts tell you where. The canvas height follows on its own.
+- `python3 build.py --inventory other.yaml` renders a different inventory file, handy for trying changes without touching `inventory.yaml`.
 - A device whose cable enters from above must have its entry point right of its folder tab (see how `KVM_IN`/`AP_IN` use `tab_width()`).

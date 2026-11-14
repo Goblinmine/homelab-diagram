@@ -1,7 +1,8 @@
 #!/usr/bin/env python3
 """Render the homelab diagram (r/homelab style) from inventory.yaml.
 
-Usage: python3 build.py [--unredacted]   → out/homelab.svg + out/homelab.png
+Usage: python3 build.py [--unredacted] [--inventory FILE]
+                                         → out/homelab.svg + out/homelab.png
                                             (--unredacted → out/homelab-unredacted.*)
 Content comes from inventory.yaml; the layout (positions of every box and line) is
 hand-placed in this file for one specific network, so expect to move things around.
@@ -17,7 +18,14 @@ import sys
 import yaml
 
 ROOT = pathlib.Path(__file__).resolve().parent
-INV = yaml.safe_load((ROOT / "inventory.yaml").read_text())
+if "--inventory" in sys.argv:
+    _i = sys.argv.index("--inventory") + 1
+    if _i >= len(sys.argv) or sys.argv[_i].startswith("--"):
+        raise SystemExit("--inventory needs a file")
+    INV_FILE = pathlib.Path(sys.argv[_i])
+else:
+    INV_FILE = ROOT / "inventory.yaml"
+INV = yaml.safe_load(INV_FILE.read_text())
 ICONS = ROOT / "icons"
 OUT = ROOT / "out"
 
@@ -26,7 +34,7 @@ RED = INV["redact"]
 DOMAIN = INV["meta"]["domain"]
 SHOWN_DOMAIN = DOMAIN if (UNREDACTED or not RED["domain"]) else RED["domain_placeholder"]
 
-W, H = 2400, 2326
+W, H = 2400, 0      # H is set at the end from the content (see "canvas height")
 
 # ---------------------------------------------------------------- palette
 BG = "#0b0f15"
@@ -45,6 +53,7 @@ REDDIT = "#ff5722"
 DISK = "#1d2734"
 DISK_EDGE = "#5a6b82"
 PROTO = {"TCP": "#79c0ff", "UDP": "#39c5cf"}
+UNKNOWN = "#6b7a90"   # a used port whose VLANs aren't known
 SPEED_W = {"10G": 9.5, "2.5G": 3.8, "1G": 2.4, "100M": 1.4}   # access-line widths
 VLAN = {v["key"]: v for v in INV["vlans"]}
 C = {k: v["color"] for k, v in VLAN.items()}
@@ -84,7 +93,8 @@ def _font_file(pattern):
 
 try:
     from PIL import ImageFont
-    _FONTS = {700: _font_file("Fira Sans:bold"), 600: _font_file("Fira Sans:semibold")}
+    _FONTS = {700: _font_file("Fira Sans:bold"), 600: _font_file("Fira Sans:semibold"),
+              400: _font_file("Fira Sans:regular")}
     if not all(_FONTS.values()):
         raise RuntimeError("Fira Sans not found")
     _FCACHE = {}
@@ -316,8 +326,9 @@ def vlan_tag(vkey):
 # ---------------------------------------------------------------- background + header
 S.add(f'<defs><pattern id="dots" width="24" height="24" patternUnits="userSpaceOnUse">'
       f'<circle cx="1.5" cy="1.5" r="1.3" fill="{GRID}"/></pattern></defs>')
-S.rect(0, 0, W, H, rx=0, fill=BG, stroke=BG, sw=0)
-S.rect(0, 0, W, H, rx=0, fill="url(#dots)", stroke="none", sw=0)
+BG_IDX = len(S.p)
+S.add("")   # background + dot grid: drawn at the end, once the canvas height is known
+S.add("")
 
 meta = INV["meta"]
 title = meta["title"] if (UNREDACTED or not RED["domain"]) else meta["title_redacted"]
@@ -336,9 +347,12 @@ PX0, PITCH = bx + 320, 58
 ALL_VLANS = ["10", "20", "30", "40", "99"]
 
 
+N_RJ = sum(1 for p in INV["switch"]["ports"] if not p["name"].startswith("sfpp"))   # RJ45 ports come first
+
+
 def port_x(i):
-    """Center x of switch port i (0-7 RJ45, 8-9 SFP+)."""
-    return PX0 + i * PITCH + 24 if i < 8 else PX0 + 8 * PITCH + 22 + (i - 8) * 70 + 30
+    """Center x of switch port i (0..N_RJ-1 RJ45, then SFP+)."""
+    return PX0 + i * PITCH + 24 if i < N_RJ else PX0 + N_RJ * PITCH + 22 + (i - N_RJ) * 70 + 30
 
 
 # Remote access: reaches home over the internet (dotted = logical, not a cable).
@@ -378,10 +392,17 @@ ISPD = INV["internet"]["speed"]
 S.label(CX - 10, (cy0 + 58 + fy - TAB) / 2 + 5, "↓ " + ISPD["down"], "#c3cdd9", 12, anchor="end", mono=True)
 S.label(CX + 10, (cy0 + 58 + fy - TAB) / 2 + 5, "↑ " + ISPD["up"], "#c3cdd9", 12, anchor="start", mono=True)
 FBX, FBW = CX - 302, 620                   # coax port sits right under the internet line (x = CX)
-device_card(FBX, fy, FBW, fh, ["fritzbox"], fb, C["wan"])
+FB_PORTS = [] if fb.get("stub") else [("Cable", None)] + [(sp, None) for sp in fb["lan_ports"]]
+if fb.get("stub"):                         # ISP-managed box (ONT, modem): small box, WAN goes straight down
+    S.line([(CX, cy0 + 58), (CX, fy + fh)], C["wan"], SPEED_W["1G"])
+    S.rect(CX - 170, fy + fh - 92, 340, 62, rx=12, fill=PANEL, stroke=C["wan"] + "aa", sw=1.6)
+    S.text(CX, fy + fh - 66, f"{fb['name']} · {fb['type']}", 16, TEXT, 600, "middle")
+    S.text(CX, fy + fh - 46, fb["model"], 12.5, MUTED, 400, "middle")
+    WANX = CX
+else:
+    device_card(FBX, fy, FBW, fh, ["fritzbox"], fb, C["wan"])
+    S.line([(CX, cy0 + 58), (CX, fy + 28)], "#6b7a90", 3)
 COAX_X = FBX + 302
-S.line([(CX, cy0 + 58), (CX, fy + 28)], "#6b7a90", 3)
-FB_PORTS = [("Cable", None)] + [(sp, None) for sp in fb["lan_ports"]]
 for i, (lbl, _) in enumerate(FB_PORTS):
     if i == 0:
         cx_ = COAX_X
@@ -455,6 +476,8 @@ for i, p in enumerate(swc["ports"]):
     tagged = p.get("tagged", [])
     if p["to"] in ("free", "rescue"):
         fill, stroke = "#1b222c", (C[unt] if unt and not tagged else TRUNK)
+    elif not unt and not tagged:                       # in use, VLANs unknown
+        fill, stroke = UNKNOWN + "44", UNKNOWN
     elif unt and not tagged:
         fill, stroke = C[unt] + "55", C[unt]
     else:
@@ -463,8 +486,10 @@ for i, p in enumerate(swc["ports"]):
     short = "SFP+" + p["name"][-1] if sfp else p["name"].replace("ether", "")
     S.text(port_x(i), y - 7, short, 11, MUTED, 500, "middle", mono=True)
     ticks(port_x(i), y + 41, unt, tagged)
-    S.text(port_x(i), by + bh - 9, p["to"], 10.5, FAINT if p["to"] in ("free", "rescue") else MUTED, 500, "middle")
+    S.text(port_x(i), by + bh - 9, p.get("short", p["to"]), 10.5, FAINT if p["to"] in ("free", "rescue") else MUTED, 500, "middle")
     PORTS[p["name"]] = port_x(i)
+assert port_x(len(swc["ports"]) - 1) + 40 <= bx + bw, \
+    f"switch ports run past the card: widen bw (now {bw}) or reduce PITCH"
 
 # ================================================================ device row
 DY = 1234
@@ -491,11 +516,16 @@ x, w, h = device("ap", AP)
 S.text(x + 18, DY + 96, "SSIDs", 11, FAINT, 600, ls=1.2)
 for i, s in enumerate(INV["ssids"]):
     name = s["redacted"] if (RED["ssid_names"] and not UNREDACTED) else s["name"]
-    col = C[s["vlan"]]
+    col = C[s["vlan"]] if "vlan" in s else TRUNK     # PPSK SSIDs may list only `vlans`
     sy = DY + 106 + i * 17
     S.add(f'<circle cx="{x+24}" cy="{sy+5}" r="4" fill="{col}"/>')
     S.text(x + 36, sy + 9, name, 13, TEXT, 500)
-    S.text(x + 150, sy + 9, vlan_tag(s["vlan"]), 12, col, 500, mono=True)
+    if s.get("vlans"):                    # PPSK: one SSID, several VLANs
+        S.text(x + 150, sy + 9, "PPSK", 11, TRUNK, 700, mono=True)
+        for j, k in enumerate(s["vlans"]):
+            S.add(f'<circle cx="{x + 194 + j*13}" cy="{sy+5}" r="4.5" fill="{C[k]}"/>')
+    else:
+        S.text(x + 150, sy + 9, vlan_tag(s["vlan"]), 12, col, 500, mono=True)
 
 device("slzb", ZB)
 
@@ -625,7 +655,8 @@ for i, hwi in enumerate(T["hw"]):
     S.text(x + 50, y + 17, hwi["label"], 10, "#c08a5c", 700, ls=1.3)
     vs = min(15.5, 15.5 * (HWW - 62) / measure(hwi["value"], 15.5, 700))   # shrink long part names to fit
     S.text(x + 50, y + 35, hwi["value"], round(vs, 2), TEXT, 700)
-    S.text(x + 50, y + 50, hwi["sub"], 10.5, MUTED, 400)
+    ss = min(10.5, 10.5 * (HWW - 60) / max(tw(hwi["sub"], 10.5), 1))       # same for the sub line
+    S.text(x + 50, y + 50, hwi["sub"], round(ss, 2), MUTED, 400)
 assert hy0 + 22 + len(T["hw"]) * (TH_ + TG_) <= hy0 + ZH + 6, "hardware list too tall"
 
 S.trunk([(PORTS["sfpp2"], SB), (PORTS["sfpp2"], ty0)], sw=trunk_w("10G"))
@@ -673,15 +704,26 @@ def disk(kind, x, y):
 
 
 def pool_box(p, x, y, w, h):
+    y0 = y
     S.rect(x, y, w, h, rx=10, fill=CHIP, stroke=BORDER, sw=1)
     S.text(x + 14, y + 24, p["name"], 15.5, TEXT, 700)
     S.text(x + 14 + tw(p["name"], 15.5) + 12, y + 24, p["layout"], 12.5, MUTED, 400)
     S.text(x + w - 14, y + 24, p["used"], 12, MUTED, 400, "end")
     bw_ = w - 28
     S.rect(x + 14, y + 34, bw_, 8, rx=4, fill="#253042", stroke="none", sw=0)
-    S.rect(x + 14, y + 34, max(bw_ * p["pct"] / 100, 8), 8, rx=4, fill=C["10"], stroke="none", sw=0)
+    barc = "#f0883e" if p["pct"] >= p.get("warn", 85) else C["10"]     # nearly full → orange
+    S.rect(x + 14, y + 34, max(bw_ * p["pct"] / 100, 8), 8, rx=4, fill=barc, stroke="none", sw=0)
     gx0 = x + 14
     for grp in p["groups"]:
+        disks = grp["count"] * ({"hdd": 30, "ssd": 44}.get(grp["kind"], 96) + 7)
+        texts = max(measure(grp["label"], 12.5, 600), measure(grp["sub"], 11.5, 400),
+                    measure(grp.get("sub2", ""), 11.5, 400))                      # real font widths
+        if grp["kind"] == "nvme":                        # labels sit right of the stick
+            disks, texts = disks, disks + 8 + texts
+        # disks must stay inside the padding; labels may run into it, up to the box edge
+        if gx0 > x + 14 and (gx0 + disks > x + w - 14 or gx0 + texts > x + w - 4):   # next row
+            gx0, y = x + 14, y + 110
+            assert y + 156 <= y0 + h, f"pool {p['name']}: disk groups wrap to a 2nd row, give the pool box {y + 156 - y0} px"
         dx = gx0
         for _ in range(grp["count"]):
             dx += disk(grp["kind"], dx, y + 54) + 7
@@ -746,14 +788,26 @@ def docker_badge(x, y):
     S.icon("docker", x - 8.5, y - 8.5, 17)
 
 
+ZONE_VLAN = "20"
+
+
+def chip_ids(g, x, y, w, h):
+    """Right-hand column of a chip: '<kind> <id>', IP (or .id), optional node; VLAN bar if not in the zone VLAN.
+    Optional guest fields: kind (default CT), node (cluster member it runs on), vlan."""
+    node = f" · {g['node']}" if g.get("node") else ""          # on the id line, clear of the hostname
+    S.text(x + w - 12, y + 21, f"{g.get('kind', 'CT')} {g['id']}{node}", 12, FAINT, 500, "end", mono=True)
+    S.text(x + w - 12, y + 37, g.get("ip", f".{g['id']}"), 11, FAINT, 500, "end", mono=True)
+    if g.get("vlan", ZONE_VLAN) != ZONE_VLAN:
+        S.add(f'<rect x="{x}" y="{y+8}" width="4" height="{h-16}" rx="2" fill="{C[g["vlan"]]}"/>')
+
+
 def chip_apps(g, x, y, w):
     """One CT running several apps: header like a normal chip, then one row per app (icon, name, hostname)."""
     h = 46 + len(g["apps"]) * 21 + 8
     S.rect(x, y, w, h, rx=9, fill=CHIP, stroke=BORDER, sw=1)
     S.text(x + 14, y + 22, g["name"], 14.5, TEXT, 600)
     S.text(x + 14, y + 38, g.get("note", ""), 11.5, MUTED, 400)
-    S.text(x + w - 12, y + 21, f"CT {g['id']}", 12, FAINT, 500, "end", mono=True)
-    S.text(x + w - 12, y + 37, g.get("ip", f".{g['id']}"), 11, FAINT, 500, "end", mono=True)
+    chip_ids(g, x, y, w, h)
     for k, a in enumerate(g["apps"]):
         ry = y + 50 + k * 21
         S.icon(a["icon"], x + 14, ry, 17)
@@ -790,8 +844,7 @@ def chip(g, x, y, w):
         S.text(nx, y + 54, name, 11.5, ncol or MUTED, 500, mono=True)
         if g.get("exposure") == "local":
             S.pill(nx + tw(name, 11.5, True) + 8, y + 44, "LAN", MUTED, 9.5, mono=True, pad=4, h=14)
-    S.text(x + w - 12, y + 21, f"CT {g['id']}", 12, FAINT, 500, "end", mono=True)
-    S.text(x + w - 12, y + 37, g.get("ip", f".{g['id']}"), 11, FAINT, 500, "end", mono=True)
+    chip_ids(g, x, y, w, CH)
     if g.get("docker"):
         docker_badge(x + 2, y + 2)
     return CH
@@ -907,7 +960,13 @@ S.text(qx + 10, (RB + NH + RC) / 2 + 4, "download", 11, MUTED, 500)
 S.arrow([(jx, RC - 2), (jx, RB + NH + 5)])
 S.text(jx + 10, (RB + NH + RC) / 2 + 4, "library", 11, MUTED, 500)
 
-assert ty0 + th0 <= H - 20, f"canvas too short: terra ends at {ty0 + th0}"
+# ---------------------------------------------------------------- canvas height
+# the canvas grows with the content: lowest panel + margin
+H = int(ty0 + th0 + 32)
+S.rect(0, 0, W, H, rx=0, fill=BG, stroke=BG, sw=0)
+S.rect(0, 0, W, H, rx=0, fill="url(#dots)", stroke="none", sw=0)
+dots = S.p.pop()
+S.p[BG_IDX], S.p[BG_IDX + 1] = S.p.pop(), dots
 
 OUT.mkdir(exist_ok=True)
 name = "homelab-unredacted" if UNREDACTED else "homelab"
