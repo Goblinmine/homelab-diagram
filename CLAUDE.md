@@ -9,6 +9,7 @@ Start by telling the user briefly how this works (interview → inventory → la
 - `inventory.yaml` – all content: VLANs, devices, switch ports, port forwards, server hardware, VMs/containers, storage pools, the media pipeline.
 - `build.py` – hand-placed layout. Draws an SVG with absolute coordinates (logical canvas `W = 2400`, height `H`), embeds icons as base64, converts to PNG with `rsvg-convert -z 1.6` (so PNG pixels = SVG units × 1.6).
 - `fetch_icons.py` – downloads service icons into `icons/` (dashboard-icons). Own glyphs `icons/glyph-*.svg` are in the repo.
+- `netbox_inventory.py` – optional: fills inventory fields from NetBox (read-only) and writes a new inventory file, see [Optional: NetBox as a data source](#optional-netbox-as-a-data-source).
 - Output: `out/homelab.png` (redacted, safe to post) and `out/homelab-unredacted.png` (`--unredacted`).
 
 ### What is generic and what is hardcoded
@@ -88,6 +89,35 @@ All optional; leaving them out renders exactly as before.
 | `warn` | pools | usage bar turns orange at/above this percentage (default 85) |
 
 Pool disk groups that don't fit next to each other wrap to a second row; the assert tells you how tall the pool box must be.
+
+## Optional: NetBox as a data source
+
+If the user documents the lab in NetBox, ask whether the facts should come from there. Then the file they keep is a *base inventory* with `netbox:` links, and `netbox_inventory.py` writes the inventory that `build.py` renders:
+
+```bash
+NETBOX_URL=https://netbox.example.com python3 netbox_inventory.py [--base inventory.yaml] [--out out/inventory-netbox.yaml]
+python3 build.py --inventory out/inventory-netbox.yaml
+```
+
+Token: `NETBOX_TOKEN`, or the file `NETBOX_TOKEN_FILE` (default `~/.netbox_token`); v1 tokens and v2 tokens (`nbt_…`) both work. The script only sends GET requests, so a read-only token is enough. The output goes to `out/` by default, which is git-ignored: it holds the user's real names and IPs.
+
+**Rule:** NetBox fills a field only when it is missing from the entry or set to the string `netbox`. A value written in the base file always wins (the report lists where it differs from NetBox). The `netbox:` keys are removed from the output.
+
+| Base entry | NetBox object | Fields filled |
+|---|---|---|
+| `vlans[]` with `netbox: <VID>` | VLAN with that VID, IPv4 prefix assigned to it | `name`, `subnet`, `tag` (`VLAN <VID>`). Rows without `netbox:` still map port VLANs when their `key` is the VID |
+| `fritzbox`, `opnsense`, `switch`, `terra`, `devices.<key>` with `netbox: <device name>` | device | `model` (manufacturer + device type), `ip` (primary IPv4), `os` (platform) |
+| `switch` with `ports` missing or `ports: netbox` | the device's interfaces | `ports`: RJ45 → `etherN`, SFP/SFP+ → `sfppN` (N from a label `Port N` / `SFP+ N`, else NetBox order); `to` = cable peer, shown as the card `name` when the peer is a linked card, `free` without a cable or when disabled; `speed` (`10G`, `2.5G`, …); `untagged` / `tagged` from the 802.1Q mode (`tagged-all` = every VLAN in the table) |
+| `opnsense`, `terra` with `hw` missing, or an item `netbox` in `hw` | modules with the module type profiles CPU, Memory, GPU, Hard disk (NetBox 4.3+) | hardware tiles: CPU (cores, speed), MEMORY (total + class, sub `4× 8 GB`), GPU, SSD/HDD (identical disks grouped as `7× …`). A module's description, if set, becomes the sub line (e.g. `passthrough → TrueNAS`). The `netbox` item is replaced by the tiles, other items stay (NETWORK tiles: NetBox has no NIC model) |
+| guests in `terra.dmz_groups[].guests` and `terra.other_guests` with `netbox: <VM name>` | virtual machine | `id` (custom field `vmid`, else a numeric `serial`), `ip` (primary IPv4; DMZ chips get `.<last octet>`), `note` (DMZ: the VM description; other guests: `<kind> <id> · N vCPU · M GB`) |
+
+Stays in the base file: colors, VLAN notes, `type`, icons, `internal`/`host`/`exposure`, services, SSIDs, port forwards, pools, apps, the media pipeline. `kind` (VM/CT) is not guessed.
+
+When adapting:
+- The per-port `speed` is informational: link widths are drawn in `build.py` (`# links switch → devices`). Use it to pick the `SPEED_W` of each cable.
+- `build.py` addresses ports by name (`PORTS["ether3"]`, `PORTS["sfpp2"]`); after importing a switch with other ports, fix those references and the switch width (`bw`, the assert tells you).
+- A VLAN used on a port but missing from the `vlans` table is left off the port and reported, since every key needs a color.
+- The report lists NetBox VMs on the `terra` device that have no card, so nothing is forgotten.
 
 ## Gotchas
 

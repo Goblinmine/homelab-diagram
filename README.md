@@ -63,6 +63,37 @@ The service icons are **not** in this repo, `fetch_icons.py` downloads them from
 2. Look at the render. Things that don't fit are layout: the top part (cloud, ISP router, firewall, switch, device row) and the column split inside the server card are coordinates in `build.py` (search for `fy, fh`, `ox, oy`, `bx, by`, `DY`, `MAD = …`).
 3. New icons: drop an SVG into `icons/` and use its file name in the inventory.
 
+### Optional: fill the inventory from NetBox
+
+If your lab is documented in [NetBox](https://netbox.dev), `netbox_inventory.py` can fill the facts in the inventory from it: VLAN names and subnets, device models, IPs and OS, the switch ports (cable peer, speed, untagged/tagged VLANs), server hardware from modules, and VM IDs, IPs and sizes. It only reads (GET requests), needs nothing besides PyYAML and is not used unless you run it.
+
+Link entries in your inventory to NetBox with a `netbox:` key and leave out the fields NetBox should fill (or set them to `netbox`). Whatever you write yourself wins, so colors, notes, services, pools and the media pipeline stay hand-written:
+
+```yaml
+vlans:
+  - {key: "10", netbox: 10, color: "#58a6ff", note: "trusted"}   # name, subnet, tag from VLAN 10
+switch:
+  netbox: "core-switch"           # model, ip, os from this NetBox device
+  name: "MikroTik"
+  type: "switch"
+  internal: mikrotik
+  ports: netbox                   # ports from its interfaces
+terra:
+  netbox: "pve1"
+  hw: [netbox, {icon: glyph-nic, label: "NETWORK", value: "ConnectX-3 10G", sub: "SFP+"}]
+  other_guests:
+    unifi: {netbox: "unifi", kind: CT, vlan: "99", internal: unifi, name: "UniFi OS Server", icons: [unifi]}
+```
+
+```bash
+export NETBOX_URL=https://netbox.example.com
+export NETBOX_TOKEN=...            # or put it into ~/.netbox_token (see NETBOX_TOKEN_FILE)
+python3 netbox_inventory.py        # inventory.yaml + NetBox → out/inventory-netbox.yaml
+python3 build.py --inventory out/inventory-netbox.yaml
+```
+
+It prints what came from NetBox, where your written value differs from NetBox, and what it could not find (missing devices, VLANs on a port that are not in your table, VMs on the host without a card). `--base FILE` and `--out FILE` pick other files. The layout is still the one in `build.py`: if NetBox gives you a switch with 24 ports, the switch card has to grow, as with a hand-written inventory. The field mapping is in [`CLAUDE.md`](CLAUDE.md#optional-netbox-as-a-data-source).
+
 ## Using it with Claude Code
 
 The repo contains a [`CLAUDE.md`](CLAUDE.md) with everything an AI agent needs to adapt it to your lab: how the code is structured, which parts of the layout are hardcoded, the questions to ask about your network, the render-and-check loop, and the design rules this diagram follows.
