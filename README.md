@@ -14,7 +14,7 @@ The script behind the network diagram of my homelab that I posted on r/homelab. 
 
 - the path from the internet through the ISP router (with its real ports) and the firewall to the core switch
 - every switch port with the VLANs on it (tall bar = untagged, short bars = tagged)
-- cables whose **line width is the negotiated link speed** (10G / 2.5G / 1G / 100M), trunks drawn as a white cable with a dark core
+- cables whose **line width is the negotiated link speed** (10G / 2.5G / 1G / 100M), trunks drawn as a light cable with a dark core (inverted in light mode)
 - the devices with name, type, model, IP · hostname and OS
 - the Proxmox host with its hardware, the VMs/CTs outside the DMZ, the TrueNAS pools (disks, vdevs, usage) and every DMZ container with its CT ID, IP and hostname
 - containers that run several apps as one card with a row per app
@@ -43,17 +43,25 @@ With [uv](https://docs.astral.sh/uv/) (creates `.venv` and installs the pinned d
 ```bash
 uv sync                         # once: create .venv, install PyYAML + Pillow
 uv run fetch_icons.py           # downloads the service icons into icons/ (once)
-uv run build.py                 # → out/homelab.svg + out/homelab.png (redacted)
+uv run build.py                 # → out/homelab.svg + out/homelab.png (redacted, dark theme)
 uv run build.py --unredacted    # → out/homelab-unredacted.svg + .png
+uv run build.py --dark          # → out/homelab-dark.svg + out/homelab-dark.png
+uv run build.py --light         # → out/homelab-light.svg + out/homelab-light.png
+uv run build.py --light --unredacted   # → out/homelab-light-unredacted.svg + .png
 ```
 
 Or with a plain Python install of PyYAML:
 
 ```bash
 python3 fetch_icons.py          # downloads the service icons into icons/ (once)
-python3 build.py                # → out/homelab.svg + out/homelab.png (redacted)
+python3 build.py                # → out/homelab.svg + out/homelab.png (redacted, dark theme)
 python3 build.py --unredacted   # → out/homelab-unredacted.svg + .png
+python3 build.py --dark         # → out/homelab-dark.svg + out/homelab-dark.png
+python3 build.py --light        # → out/homelab-light.svg + out/homelab-light.png
+python3 build.py --light --unredacted   # → out/homelab-light-unredacted.svg + .png
 ```
+
+`--dark` is the default theme; without a flag the output keeps the plain `homelab` name, while an explicit flag adds the mode. The mode suffix comes before `-unredacted`, so both themes can keep their own files. Themes change only the palette and the ink of white-only icons; coordinates and text stay identical.
 
 The service icons are **not** in this repo, `fetch_icons.py` downloads them from [homarr-labs/dashboard-icons](https://github.com/homarr-labs/dashboard-icons). Only my own small glyphs (`icons/glyph-*.svg`: CPU, RAM, SSD, …) are included.
 

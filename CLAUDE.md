@@ -9,7 +9,7 @@ Start by telling the user briefly how this works (interview → inventory → la
 - `inventory.yaml` – all content: VLANs, devices, switch ports, port forwards, server hardware, VMs/containers, storage pools, the media pipeline.
 - `build.py` – hand-placed layout. Draws an SVG with absolute coordinates (logical canvas `W = 2400`, height `H`), embeds icons as base64, converts to PNG with `rsvg-convert -z 1.6` (so PNG pixels = SVG units × 1.6).
 - `fetch_icons.py` – downloads service icons into `icons/` (dashboard-icons). Own glyphs `icons/glyph-*.svg` are in the repo.
-- Output: `out/homelab.png` (redacted, safe to post) and `out/homelab-unredacted.png` (`--unredacted`).
+- Output: `out/homelab.png` (redacted, safe to post, dark theme) and `out/homelab-unredacted.png` (`--unredacted`). An explicit `--dark` or `--light` adds the mode to the name: `out/homelab-<mode>[-unredacted].png`.
 
 ### What is generic and what is hardcoded
 
@@ -53,14 +53,14 @@ Useful read-only commands if you have access (ask first): Proxmox `pct list`, `q
 
 1. Write `inventory.yaml` for their lab (keep the schema; extend it when needed and teach `build.py` the new fields).
 2. Adapt `build.py`: decide which panels exist, adjust the hardcoded positions above, remove sections they don't need.
-3. `python3 fetch_icons.py` (add new icons to `ICON_MAP` first: local name → name in [dashboard-icons](https://github.com/homarr-labs/dashboard-icons); dark icons need a `-light` variant or an entry in `RECOLOR`).
+3. `python3 fetch_icons.py` (add new icons to `ICON_MAP` first: local name → name in [dashboard-icons](https://github.com/homarr-labs/dashboard-icons); dark icons need a `-light` variant or an entry in `RECOLOR`). A light-only icon gets recolored at render time when it is listed in `WHITE_ARTWORK` in `build.py`; brand artwork outside that set stays untouched.
 4. `python3 build.py`, then **look at `out/homelab.png` yourself** before showing it. Zoom into busy areas: `magick out/homelab.png -crop 1400x600+X+Y +repage -resize 70% /tmp/crop.png` (X/Y in PNG pixels = SVG coordinates × 1.6). Look for overlapping text, cables crossing cards, text running out of boxes, empty gaps.
 5. Show the user, take feedback, change, re-render. Expect many small rounds, that's normal.
-6. Before they share it: render without `--unredacted` and `grep` `out/homelab.svg` for their real domain, SSID names and anything private.
+6. Before they share it: render without `--unredacted` and `grep` `out/homelab.svg` for their real domain, SSID names and anything private. Render `--light` too and inspect it: white-only icons must be dark, and trunks invert to a dark cable with a light core.
 
 ## Design rules (keep them unless the user wants otherwise)
 
-- **Line width = negotiated link speed** (`SPEED_W`), plus a small speed tag where a cable reaches a device. Trunks (tagged VLANs) are a white cable with a dark core; access links use the VLAN color.
+- **Line width = negotiated link speed** (`SPEED_W`), plus a small speed tag where a cable reaches a device. Trunks (tagged VLANs) are a light cable with a dark core in dark mode and a dark cable with a light core in light mode; access links use the VLAN color.
 - Only **physical cables are solid lines**. Dotted = logical, over the internet (VPN, cloud services). Dashed grey = KVM console.
 - **Card border = the device's VLAN color**; devices on a trunk (firewall, switch, hypervisor, APs with several SSIDs) get the neutral `TRUNK_BORDER`.
 - **Physical devices** use the folder-tab card: tab = `name · type`; body = icon, full model name (or what it is, for self-built machines), `IP · hostname` in the VLAN color, OS + version.
@@ -95,4 +95,5 @@ Pool disk groups that don't fit next to each other wrap to a second row; the ass
 - jsDelivr sometimes refuses single icons with 403; `fetch_icons.py` falls back to raw GitHub.
 - When content grows, grow the section heights (`ZH`, pool boxes, …); the asserts tell you where. The canvas height follows on its own.
 - `python3 build.py --inventory other.yaml` renders a different inventory file, handy for trying changes without touching `inventory.yaml`.
+- `--light` and `--dark` select the palette and add the mode to the output name (`out/homelab-light.*` / `out/homelab-dark.*`); without a flag the output keeps the plain `out/homelab.*` name, so explicit renders can coexist with the default one.
 - A device whose cable enters from above must have its entry point right of its folder tab (see how `KVM_IN`/`AP_IN` use `tab_width()`).

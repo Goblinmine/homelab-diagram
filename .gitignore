@@ -4,3 +4,13 @@ __pycache__/
 # third-party icons are downloaded by fetch_icons.py, only the own glyphs are in the repo
 icons/*
 !icons/glyph-*.svg
+
+.idea
+.openidea
+.workbuddy
+.codebuddy
+.vscode
+.claude
+.continue
+.hermes
+.agents

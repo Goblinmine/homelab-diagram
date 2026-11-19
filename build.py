@@ -1,17 +1,22 @@
 #!/usr/bin/env python3
 """Render the homelab diagram (r/homelab style) from inventory.yaml.
 
-Usage: python3 build.py [--unredacted] [--inventory FILE]
+Usage: python3 build.py [--dark|--light] [--unredacted] [--inventory FILE]
                                          → out/homelab.svg + out/homelab.png
-                                            (--unredacted → out/homelab-unredacted.*)
+                                            (--dark / --light add the mode to the name;
+                                             --unredacted adds -unredacted after it)
 Content comes from inventory.yaml; the layout (positions of every box and line) is
 hand-placed in this file for one specific network, so expect to move things around.
-Line width encodes link speed (SPEED_W); trunks are drawn as a light cable with a dark core.
+Themes: dark (default) or light. Without a mode flag the output keeps the plain
+homelab name; both themes change only the palette and icon ink, never the layout.
+Line width encodes link speed (SPEED_W); trunks are a light cable with a dark core in
+dark mode, inverted in light mode.
 Written with Claude (Anthropic) in Claude Code, see README.md.
 """
 import base64
 import html
 import pathlib
+import re
 import subprocess
 import sys
 
@@ -30,6 +35,10 @@ ICONS = ROOT / "icons"
 OUT = ROOT / "out"
 
 UNREDACTED = "--unredacted" in sys.argv
+if "--dark" in sys.argv and "--light" in sys.argv:
+    raise SystemExit("use either --dark or --light, not both")
+MODE = "light" if "--light" in sys.argv else "dark"
+MODE_EXPLICIT = "--dark" in sys.argv or "--light" in sys.argv
 RED = INV["redact"]
 DOMAIN = INV["meta"]["domain"]
 SHOWN_DOMAIN = DOMAIN if (UNREDACTED or not RED["domain"]) else RED["domain_placeholder"]
@@ -37,26 +46,66 @@ SHOWN_DOMAIN = DOMAIN if (UNREDACTED or not RED["domain"]) else RED["domain_plac
 W, H = 2400, 0      # H is set at the end from the content (see "canvas height")
 
 # ---------------------------------------------------------------- palette
-BG = "#0b0f15"
-GRID = "#151c26"
-PANEL = "#111821"
-PANEL2 = "#161f2b"
-CHIP = "#19222e"
-BORDER = "#253042"
-TEXT = "#e6edf3"
-MUTED = "#8d9aab"
-FAINT = "#5d6a7c"
-TRUNK = "#d5dde6"
-TRUNK_BORDER = "#3a475a"   # border for devices on a tagged trunk (not in a single VLAN)
-LINK = "#79c0ff"
-REDDIT = "#ff5722"
-DISK = "#1d2734"
-DISK_EDGE = "#5a6b82"
-PROTO = {"TCP": "#79c0ff", "UDP": "#39c5cf"}
-UNKNOWN = "#6b7a90"   # a used port whose VLANs aren't known
+# The two themes share every coordinate; only colors and icon ink differ.
+THEMES = {
+    "dark": dict(
+        bg="#0b0f15", grid="#151c26", panel="#111821", panel2="#161f2b",
+        chip="#19222e", border="#253042", text="#e6edf3", muted="#8d9aab",
+        faint="#5d6a7c", trunk="#d5dde6", trunk_border="#3a475a", link="#79c0ff",
+        watermark="#ff5722", disk="#1d2734", disk_edge="#5a6b82",
+        uplink="#6b7a90", hardware="#c08a5c", hardware_bg="#151d29",
+        hardware_border="#2e3a4c", cloud="#1a2433", cloud_border="#3a4a60",
+        soft="#c3cdd9", jack="#2a3443", jack_free="#1b222c",
+        switch_bg="#141b25", terra_bg="#0f151e", glyph="#c9d1d9",
+    ),
+    "light": dict(
+        bg="#f5f7fa", grid="#e4e9ef", panel="#ffffff", panel2="#eef2f6",
+        chip="#f0f4f8", border="#cbd5e1", text="#172536", muted="#4b5d70",
+        faint="#596b7e", trunk="#475569", trunk_border="#94a3b8", link="#0969b5",
+        watermark="#bd4319", disk="#e5ebf2", disk_edge="#66788a",
+        uplink="#66788a", hardware="#8b5428", hardware_bg="#f3f6fa",
+        hardware_border="#cbd5e1", cloud="#e7eef6", cloud_border="#a6b6c8",
+        soft="#33465c", jack="#dbe4ee", jack_free="#cbd5e1",
+        switch_bg="#eef2f6", terra_bg="#edf2f7", glyph="#445569",
+    ),
+}
+THEME = THEMES[MODE]
+BG, GRID = THEME["bg"], THEME["grid"]
+PANEL, PANEL2, CHIP = THEME["panel"], THEME["panel2"], THEME["chip"]
+BORDER, TEXT, MUTED, FAINT = (THEME[k] for k in ("border", "text", "muted", "faint"))
+TRUNK, TRUNK_BORDER = THEME["trunk"], THEME["trunk_border"]
+LINK, REDDIT = THEME["link"], THEME["watermark"]
+DISK, DISK_EDGE = THEME["disk"], THEME["disk_edge"]
+UNKNOWN, SOFT = THEME["uplink"], THEME["soft"]
+CLOUD, CLOUD_BORDER = THEME["cloud"], THEME["cloud_border"]
+JACK, JACK_FREE = THEME["jack"], THEME["jack_free"]
+HW_BG, HW_BORDER = THEME["hardware_bg"], THEME["hardware_border"]
+SWITCH_BG, TERRA_BG = THEME["switch_bg"], THEME["terra_bg"]
+GLYPH = THEME["glyph"]
+
+# White-only brand artwork would vanish on light cards; darken its ink at render time.
+WHITE_ARTWORK = {"mikrotik-l", "matrix-l", "matter-l", "penpot-l", "ollama-l", "thread-l"}
+DARK_INK = {b"#c9d1d9", b"#fff", b"#ffffff", b"#e6e6e6", b"#e6edf3"}
+ICON_HEX = re.compile(rb"#[0-9a-fA-F]{3}(?:[0-9a-fA-F]{3})?(?![0-9a-fA-F])")
+
+
+def accent(color):
+    """Darken inventory accents for readable text on light cards, retaining their hue."""
+    if MODE == "dark":
+        return color
+    rgb = [int(color[i:i + 2], 16) / 255 for i in (1, 3, 5)]
+    while True:
+        linear = [v / 12.92 if v <= 0.04045 else ((v + 0.055) / 1.055) ** 2.4 for v in rgb]
+        luminance = sum(v * w for v, w in zip(linear, (0.2126, 0.7152, 0.0722)))
+        if luminance <= 0.14:
+            return "#" + "".join(f"{round(v * 255):02x}" for v in rgb)
+        rgb = [v * 0.94 for v in rgb]
+
+
 SPEED_W = {"10G": 9.5, "2.5G": 3.8, "1G": 2.4, "100M": 1.4}   # access-line widths
-VLAN = {v["key"]: v for v in INV["vlans"]}
+VLAN = {v["key"]: dict(v, color=accent(v["color"])) for v in INV["vlans"]}
 C = {k: v["color"] for k, v in VLAN.items()}
+PROTO = {"TCP": accent("#79c0ff"), "UDP": accent("#39c5cf")}
 SANS = "Fira Sans"
 MONO = "Fira Code"
 
@@ -142,7 +191,14 @@ class SVG:
             f = ICONS / f"{name}.svg"
             if not f.exists():
                 raise SystemExit(f"missing icon '{name}' – run: python3 fetch_icons.py")
-            self._icon_cache[name] = base64.b64encode(f.read_bytes()).decode()
+            data = f.read_bytes()
+            if MODE == "light" and (name.startswith("glyph-") or name in WHITE_ARTWORK):
+                def repl(m):
+                    if m[0].lower() in DARK_INK:
+                        return GLYPH.encode()
+                    return accent(m[0].decode()).encode() if name.startswith("glyph-") else m[0]
+                data = ICON_HEX.sub(repl, data)
+            self._icon_cache[name] = base64.b64encode(data).decode()
         self.add(f'<image x="{x:.1f}" y="{y:.1f}" width="{size}" height="{size}" '
                  f'href="data:image/svg+xml;base64,{self._icon_cache[name]}"/>')
 
@@ -252,7 +308,7 @@ def card(x, y, w, h, color=None, title=None, icons=None, sub_=None, isz=34, tsiz
     return tx_
 
 
-HWC = "#c08a5c"   # "physical hardware" accent (same tan as the HARDWARE labels)
+HWC = THEME["hardware"]   # "physical hardware" accent (same tan as the HARDWARE labels)
 
 
 def hw_bar(x, y, h):
@@ -303,9 +359,9 @@ def device_card(x, y, w, h, icons, g, color, fill=PANEL, stroke=None, sw=1.6):
 def jack(x, y, w, h, fill, stroke, sfp=False):
     S.rect(x, y, w, h, rx=5, fill=fill, stroke=stroke, sw=1.4)
     if sfp:
-        S.rect(x + 8, y + 9, w - 16, h - 18, rx=2, fill="#0b0f15", stroke="none", sw=0)
+        S.rect(x + 8, y + 9, w - 16, h - 18, rx=2, fill=BG, stroke="none", sw=0)
     else:
-        S.add(f'<path d="M{x+10},{y+h-8} v-14 h6 v-5 h{w-32} v5 h6 v14 z" fill="#0b0f15"/>')
+        S.add(f'<path d="M{x+10},{y+h-8} v-14 h6 v-5 h{w-32} v5 h6 v14 z" fill="{BG}"/>')
 
 
 def ticks(cx, y, untagged=None, tagged=(), up=False):
@@ -363,11 +419,11 @@ S.line([(rx_ + 300, ry_ + 42), (CX - 100, ry_ + 42)], C["vpn"], 1.8, dash="2 5",
 # Internet cloud (circles: outline trick)
 blobs = [(-95, 18, 42), (-45, -8, 56), (25, -18, 62), (90, 6, 48), (130, 26, 30), (-130, 30, 28)]
 for dx, dy, r in blobs:
-    S.add(f'<circle cx="{CX+dx}" cy="{cy0+dy}" r="{r+2.5}" fill="#3a4a60"/>')
-S.add(f'<rect x="{CX-150}" y="{cy0+12}" width="300" height="46" rx="23" fill="#3a4a60"/>')
+    S.add(f'<circle cx="{CX+dx}" cy="{cy0+dy}" r="{r+2.5}" fill="{CLOUD_BORDER}"/>')
+S.add(f'<rect x="{CX-150}" y="{cy0+12}" width="300" height="46" rx="23" fill="{CLOUD_BORDER}"/>')
 for dx, dy, r in blobs:
-    S.add(f'<circle cx="{CX+dx}" cy="{cy0+dy}" r="{r}" fill="#1a2433"/>')
-S.add(f'<rect x="{CX-147.5}" y="{cy0+14.5}" width="295" height="41" rx="20.5" fill="#1a2433"/>')
+    S.add(f'<circle cx="{CX+dx}" cy="{cy0+dy}" r="{r}" fill="{CLOUD}"/>')
+S.add(f'<rect x="{CX-147.5}" y="{cy0+14.5}" width="295" height="41" rx="20.5" fill="{CLOUD}"/>')
 S.text(CX, cy0 + 14, "Internet", 26, TEXT, 600, "middle")
 S.text(CX, cy0 + 40, "semi-static public IPv4", 13, MUTED, 400, "middle")
 
@@ -389,8 +445,8 @@ S.line([(CX + 150, 222), (csx, 222)], FAINT, 1.6, dash="2 5", r=0)
 # Fritzbox: owns the internet uplink, NATs as usual, OPNsense is its exposed host
 fb = INV["fritzbox"]
 ISPD = INV["internet"]["speed"]
-S.label(CX - 10, (cy0 + 58 + fy - TAB) / 2 + 5, "↓ " + ISPD["down"], "#c3cdd9", 12, anchor="end", mono=True)
-S.label(CX + 10, (cy0 + 58 + fy - TAB) / 2 + 5, "↑ " + ISPD["up"], "#c3cdd9", 12, anchor="start", mono=True)
+S.label(CX - 10, (cy0 + 58 + fy - TAB) / 2 + 5, "↓ " + ISPD["down"], SOFT, 12, anchor="end", mono=True)
+S.label(CX + 10, (cy0 + 58 + fy - TAB) / 2 + 5, "↑ " + ISPD["up"], SOFT, 12, anchor="start", mono=True)
 FBX, FBW = CX - 302, 620                   # coax port sits right under the internet line (x = CX)
 FB_PORTS = [] if fb.get("stub") else [("Cable", None)] + [(sp, None) for sp in fb["lan_ports"]]
 if fb.get("stub"):                         # ISP-managed box (ONT, modem): small box, WAN goes straight down
@@ -401,20 +457,20 @@ if fb.get("stub"):                         # ISP-managed box (ONT, modem): small
     WANX = CX
 else:
     device_card(FBX, fy, FBW, fh, ["fritzbox"], fb, C["wan"])
-    S.line([(CX, cy0 + 58), (CX, fy + 28)], "#6b7a90", 3)
+    S.line([(CX, cy0 + 58), (CX, fy + 28)], UNKNOWN, 3)
 COAX_X = FBX + 302
 for i, (lbl, _) in enumerate(FB_PORTS):
     if i == 0:
         cx_ = COAX_X
-        S.rect(cx_ - 22, fy + 28, 44, 36, rx=5, fill="#2a3443", stroke=TRUNK, sw=1.4)
-        S.add(f'<circle cx="{cx_}" cy="{fy+46}" r="11" fill="#0b0f15" stroke="#5a6b82" stroke-width="2"/>'
+        S.rect(cx_ - 22, fy + 28, 44, 36, rx=5, fill=JACK, stroke=TRUNK, sw=1.4)
+        S.add(f'<circle cx="{cx_}" cy="{fy+46}" r="11" fill="{BG}" stroke="{DISK_EDGE}" stroke-width="2"/>'
               f'<circle cx="{cx_}" cy="{fy+46}" r="2.5" fill="{TRUNK}"/>')
         S.label(cx_, fy + 20, "Cable", MUTED, 11, mono=True, bg=PANEL)   # the internet line passes behind it
         S.text(cx_, fy + fh - 9, "internet", 10.5, MUTED, 500, "middle")
         continue
     cx_ = FBX + 366 + (i - 1) * 52
     used = (i - 1) == fb["opnsense_port"]
-    jack(cx_ - 22, fy + 28, 44, 36, (C["wan"] + "55") if used else "#1b222c", C["wan"] if used else "#3a475a")
+    jack(cx_ - 22, fy + 28, 44, 36, (C["wan"] + "55") if used else JACK_FREE, C["wan"] if used else TRUNK_BORDER)
     S.text(cx_, fy + 21, lbl, 11, MUTED, 500, "middle", mono=True)
     if used:
         WANX = cx_
@@ -428,10 +484,10 @@ S.text(ox + 20, oy + 96, "HARDWARE", 11.5, HWC, 700, ls=1.4)
 S.text(916, oy + 96, "SERVICES", 11.5, HWC, 700, ls=1.4)
 for i, hwi in enumerate(opn["hw"]):
     x, y = ox + 16, oy + 106 + i * 64
-    S.rect(x, y, 200, 58, rx=11, fill="#151d29", stroke="#2e3a4c", sw=1.2)
+    S.rect(x, y, 200, 58, rx=11, fill=HW_BG, stroke=HW_BORDER, sw=1.2)
     hw_bar(x, y, 58)
     S.icon(hwi["icon"], x + 12, y + 15, 28)
-    S.text(x + 50, y + 17, hwi["label"], 10, "#c08a5c", 700, ls=1.3)
+    S.text(x + 50, y + 17, hwi["label"], 10, HWC, 700, ls=1.3)
     S.text(x + 50, y + 35, hwi["value"], 15.5, TEXT, 700)
     S.text(x + 50, y + 50, hwi["sub"], 10.5, MUTED, 400)
 sw_, sh_ = 190, 50
@@ -453,7 +509,7 @@ ticks(WANX, oy + 55, untagged="wan")
 S.label(WANX + 6, (fy + fh + oy + 14) / 2 + 4, "1G", C["wan"], 11, anchor="start", mono=True)     # speed tag like the other links
 S.text(WANX + 32, oy + 38, opn["wan_ip"], 14, C["wan"], 600, mono=True)
 for i in (0, 1):
-    jack(port_x(i) - 24, oy + oh - 46, 48, 36, "#2a3443", TRUNK)
+    jack(port_x(i) - 24, oy + oh - 46, 48, 36, JACK, TRUNK)
     if i == 1:                            # OPNsense is .1 in every VLAN on this trunk
         S.text(port_x(i) + 32, oy + oh - 22, ".1", 14, TRUNK, 600, mono=True)
     ticks(port_x(i), oy + oh - 51, tagged=ALL_VLANS, up=True)
@@ -464,7 +520,7 @@ S.label(lx + 54, ly + 4, "LACP · dual 2.5G", TRUNK, 11, anchor="start", mono=Tr
 
 # ================================================================ switch
 swc = INV["switch"]
-device_card(bx, by, bw, bh, ["mikrotik-l"], swc, C["99"], fill="#141b25", stroke=TRUNK_BORDER)
+device_card(bx, by, bw, bh, ["mikrotik-l"], swc, C["99"], fill=SWITCH_BG, stroke=TRUNK_BORDER)
 
 PORTS = {}
 for i, p in enumerate(swc["ports"]):
@@ -475,13 +531,13 @@ for i, p in enumerate(swc["ports"]):
     unt = p.get("untagged")
     tagged = p.get("tagged", [])
     if p["to"] in ("free", "rescue"):
-        fill, stroke = "#1b222c", (C[unt] if unt and not tagged else TRUNK)
+        fill, stroke = JACK_FREE, (C[unt] if unt and not tagged else TRUNK)
     elif not unt and not tagged:                       # in use, VLANs unknown
         fill, stroke = UNKNOWN + "44", UNKNOWN
     elif unt and not tagged:
         fill, stroke = C[unt] + "55", C[unt]
     else:
-        fill, stroke = "#2a3443", TRUNK
+        fill, stroke = JACK, TRUNK
     jack(x, y, w, 36, fill, stroke, sfp)
     short = "SFP+" + p["name"][-1] if sfp else p["name"].replace("ether", "")
     S.text(port_x(i), y - 7, short, 11, MUTED, 500, "middle", mono=True)
@@ -625,7 +681,7 @@ vx, vy, vw = 40, 150, 500
 vh = 70 + len(INV["vlans"]) * 60
 S.rect(vx, vy, vw, vh, rx=14, fill=PANEL, stroke=BORDER, sw=1.4)
 S.text(vx + 20, vy + 36, "Networks", 19, TEXT, 600)
-for i, v in enumerate(INV["vlans"]):
+for i, v in enumerate(VLAN.values()):
     y = vy + 56 + i * 60
     S.rect(vx + 14, y, vw - 28, 52, rx=9, fill=CHIP, stroke=v["color"] + "55", sw=1)
     S.add(f'<rect x="{vx+14}" y="{y}" width="6" height="52" rx="3" fill="{v["color"]}"/>')
@@ -640,7 +696,7 @@ tx0, ty0, tw0 = 40, 1468, W - 80
 GY = 92           # body starts below the header
 ZH = 712          # body height: hardware list | other-VLAN guests | DMZ zone
 th0 = GY + ZH + 22
-device_card(tx0, ty0, tw0, th0, ["proxmox"], T, C["10"], fill="#0f151e", stroke=TRUNK_BORDER, sw=2)
+device_card(tx0, ty0, tw0, th0, ["proxmox"], T, C["10"], fill=TERRA_BG, stroke=TRUNK_BORDER, sw=2)
 
 # ---- column 1: hardware as a vertical list
 hwx, HWW = tx0 + 20, 250
@@ -649,10 +705,10 @@ S.text(hwx + 2, hy0 + 12, "HARDWARE", 11.5, HWC, 700, ls=1.4)
 TH_, TG_ = 58, 6
 for i, hwi in enumerate(T["hw"]):
     x, y = hwx, hy0 + 22 + i * (TH_ + TG_)
-    S.rect(x, y, HWW, TH_, rx=11, fill="#151d29", stroke="#2e3a4c", sw=1.2)
+    S.rect(x, y, HWW, TH_, rx=11, fill=HW_BG, stroke=HW_BORDER, sw=1.2)
     hw_bar(x, y, TH_)
     S.icon(hwi["icon"], x + 12, y + 15, 28)
-    S.text(x + 50, y + 17, hwi["label"], 10, "#c08a5c", 700, ls=1.3)
+    S.text(x + 50, y + 17, hwi["label"], 10, HWC, 700, ls=1.3)
     vs = min(15.5, 15.5 * (HWW - 62) / measure(hwi["value"], 15.5, 700))   # shrink long part names to fit
     S.text(x + 50, y + 35, hwi["value"], round(vs, 2), TEXT, 700)
     ss = min(10.5, 10.5 * (HWW - 60) / max(tw(hwi["sub"], 10.5), 1))       # same for the sub line
@@ -710,7 +766,7 @@ def pool_box(p, x, y, w, h):
     S.text(x + 14 + tw(p["name"], 15.5) + 12, y + 24, p["layout"], 12.5, MUTED, 400)
     S.text(x + w - 14, y + 24, p["used"], 12, MUTED, 400, "end")
     bw_ = w - 28
-    S.rect(x + 14, y + 34, bw_, 8, rx=4, fill="#253042", stroke="none", sw=0)
+    S.rect(x + 14, y + 34, bw_, 8, rx=4, fill=BORDER, stroke="none", sw=0)
     barc = "#f0883e" if p["pct"] >= p.get("warn", 85) else C["10"]     # nearly full → orange
     S.rect(x + 14, y + 34, max(bw_ * p["pct"] / 100, 8), 8, rx=4, fill=barc, stroke="none", sw=0)
     gx0 = x + 14
@@ -775,7 +831,7 @@ cgap = 14
 NCOL = 4
 cw = (zw - 32 - cgap * (NCOL - 1)) / NCOL
 CH, CG = 64, 7
-GT = "#c08a5c"
+GT = HWC
 
 
 def col_x(i):
@@ -923,10 +979,10 @@ def share(sh, x, y):
 
 node(N["seerr"], 0, RS)
 node(N["prowlarr"], 2, RS)
-S.rect(node_x(1) - 6, RA - 6, NW + 12, STACK_H + 12, rx=12, fill="none", stroke="#3a475a", sw=1.2, dash="3 3")
+S.rect(node_x(1) - 6, RA - 6, NW + 12, STACK_H + 12, rx=12, fill="none", stroke=TRUNK_BORDER, sw=1.2, dash="3 3")
 lx0 = node_x(1) + 2                                   # group label: Docker whale + "CT 154"
 S.rect(lx0, RA - 17, 58, 22, rx=5, fill=CARD_BG, stroke=CARD_BG, sw=0)
-S.text(lx0 + 6, RA - 1, "CT 154", 11.5, "#c3cdd9", 600, mono=True)
+S.text(lx0 + 6, RA - 1, "CT 154", 11.5, SOFT, 600, mono=True)
 for k, a in enumerate(mp["arrs"]):
     arr_node(a, node_x(1), RA + k * 52)
 node(N["jellyfin"], 0, RB)
@@ -969,7 +1025,7 @@ dots = S.p.pop()
 S.p[BG_IDX], S.p[BG_IDX + 1] = S.p.pop(), dots
 
 OUT.mkdir(exist_ok=True)
-name = "homelab-unredacted" if UNREDACTED else "homelab"
+name = "-".join(["homelab"] + ([MODE] if MODE_EXPLICIT else []) + (["unredacted"] if UNREDACTED else []))
 svg_path = OUT / f"{name}.svg"
 svg_path.write_text(S.render())
 png_path = OUT / f"{name}.png"
