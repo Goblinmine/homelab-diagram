@@ -10,6 +10,7 @@ Start by telling the user briefly how this works (interview → inventory → la
 - `build.py` – hand-placed layout. Draws an SVG with absolute coordinates (logical canvas `W = 2400`, height `H`), embeds icons as base64, converts to PNG with `rsvg-convert -z 1.6` (so PNG pixels = SVG units × 1.6).
 - `fetch_icons.py` – downloads service icons into `icons/` (dashboard-icons). Own glyphs `icons/glyph-*.svg` are in the repo.
 - Output: `out/homelab.png` (redacted, safe to post) and `out/homelab-unredacted.png` (`--unredacted`).
+- `build_site.py` + `site/` – optional interactive web page from the same inventory, see [The interactive web page](#the-interactive-web-page-optional).
 
 ### What is generic and what is hardcoded
 
@@ -57,6 +58,31 @@ Useful read-only commands if you have access (ask first): Proxmox `pct list`, `q
 4. `python3 build.py`, then **look at `out/homelab.png` yourself** before showing it. Zoom into busy areas: `magick out/homelab.png -crop 1400x600+X+Y +repage -resize 70% /tmp/crop.png` (X/Y in PNG pixels = SVG coordinates × 1.6). Look for overlapping text, cables crossing cards, text running out of boxes, empty gaps.
 5. Show the user, take feedback, change, re-render. Expect many small rounds, that's normal.
 6. Before they share it: render without `--unredacted` and `grep` `out/homelab.svg` for their real domain, SSID names and anything private.
+7. Once the diagram is done, offer the interactive web page (next section) if they want to host or browse it.
+
+## The interactive web page (optional)
+
+A static page (no server, no framework, no external requests) with the same content: a clickable topology, networks / open ports / reverse proxies / backups cards, a section per host with hardware and guests, a searchable list of every service, and the SVG from `build.py` with pan/zoom and clickable hostnames.
+
+- `site/index.html`, `site/style.css`, `site/app.js` – the hand-written page. `app.js` knows no specific lab: everything, including the topology grid and its lines, comes from `data.js`.
+- `build_site.py` – maps the inventory to that data, copies `site/` to `out/site/`, writes `data.js` (`window.LAB = {…}`; a `.js` file instead of JSON so the page also works from `file://`), copies only the icons it uses and embeds `out/homelab.svg` for the Diagram tab. `--unredacted` → `out/site-unredacted/` with `out/homelab-unredacted.svg`.
+- Run `python3 build.py` first, then `python3 build_site.py`; open `out/site/index.html` or upload the folder.
+
+The data `app.js` renders: `devices` (id → name, type, model, os, ip, hostname, url, icon, `net`, optional `hw`, `services`, `ports`, `ssids`), `topology` (`rows` of grid areas named after device ids plus the special `internet`, `cloud`, `remote`; `edges` with `style` solid/dotted/trunk, `net`, `speed`, `label`), `hosts` (a device id with `groups` of guests and optional `storage` pools), and a flat `services` list (`kind`: app, service, add-on, package, admin) that guests reference by id. Hostnames and redaction follow the same rules as `build.py`; only proxied hostnames (`host`) or an explicit `url` become links.
+
+Hardcoded in `build_site.py` (you will adapt these like the `build.py` layout):
+
+|Section (search for)|What's fixed|Typical change|
+|---|---|---|
+|`# devices`|which inventory sections become devices, their icon and network (`net` colors the border; `None` = trunk, neutral)|add/remove boxes for their lab|
+|`# topology`|`rows` (grid areas, `"."` = empty) and `edges` with speeds (the inventory has no link speeds, same as `build.py`)|place their boxes, list their cables; lines run straight down, elbow down-across-down, or sideways, so keep a free path between linked boxes; ids must be valid CSS identifiers (no leading digit)|
+|`# host sections`|which device gets a full section, how guests are grouped (DMZ groups + "Outside the DMZ"), where pools come from|their hypervisors/NAS and their grouping|
+
+Optional inventory fields only the page uses: `proxies` (domain suffix → which reverse proxy serves an app, shown on every service), `meta.access_note` (shown under every Open link, e.g. "LAN or VPN only"), `url` on a device or guest (link without a proxied hostname), `internet.note`, `backups` (a list of `from`/`from_sub`/`from_icon` → `how`/`sub` → `to`/`to_sub`/`to_icon`; the Backups card only appears when it exists).
+
+Rules: build DOM with the `h()` helper and never put inventory text into `innerHTML` (only the generated SVG is injected); no CDNs, web fonts or analytics; keep it one page with tabs.
+
+Verify in a browser, not by reading the code: no console errors; hover and click topology boxes (lines highlight, side panel opens, Esc closes it); press `/` and search; try the filter chips; Diagram tab: zoom, drag, click a hostname; a narrow window (~420 px) stacks the boxes. The page lists every hostname and IP: before it goes on a public host, build it without `--unredacted` and `grep` `out/site/data.js` for their real domain and SSID names.
 
 ## Design rules (keep them unless the user wants otherwise)
 

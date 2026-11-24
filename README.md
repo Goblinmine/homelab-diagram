@@ -19,6 +19,8 @@ The script behind the network diagram of my homelab that I posted on r/homelab. 
 - the Proxmox host with its hardware, the VMs/CTs outside the DMZ, the TrueNAS pools (disks, vdevs, usage) and every DMZ container with its CT ID, IP and hostname
 - containers that run several apps as one card with a row per app
 - what's open to the internet, a legend, the networks table and a small "media pipeline" explainer
+- blue hostnames are links, so the SVG is clickable when embedded inline or with `<object>`
+- optionally the same content as an interactive web page (see below)
 
 ## How it works
 
@@ -56,6 +58,18 @@ python3 build.py --unredacted   # → out/homelab-unredacted.svg + .png
 ```
 
 The service icons are **not** in this repo, `fetch_icons.py` downloads them from [homarr-labs/dashboard-icons](https://github.com/homarr-labs/dashboard-icons). Only my own small glyphs (`icons/glyph-*.svg`: CPU, RAM, SSD, …) are included.
+
+### Interactive web page
+
+![Web page built from the example inventory](docs/site.png)
+
+```bash
+python3 build.py                  # refresh out/homelab.svg first (the Diagram tab embeds it)
+python3 build_site.py             # → out/site/ (redacted, like the PNG)
+python3 build_site.py --unredacted  # → out/site-unredacted/ (pairs with build.py --unredacted)
+```
+
+`site/` holds the hand-written page (plain HTML/CSS/JS, no framework, no external requests); `build_site.py` copies it, writes `data.js` from `inventory.yaml` and copies the icons it uses. The page has an overview (clickable topology, networks, what's open to the internet, every host with its hardware and guests), a searchable list of all services (press `/`) and the SVG diagram with pan, zoom and clickable hostnames. It needs no server: open `out/site/index.html` directly or upload the folder to any static host. Like `build.py`, the mapping from the inventory to the page (devices, topology grid, host sections) is written for this lab and lives at the top of `build_site.py`.
 
 ## Making it your own
 

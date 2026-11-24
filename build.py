@@ -131,11 +131,13 @@ class SVG:
         self.add(f'<rect x="{x:.1f}" y="{y:.1f}" width="{w:.1f}" height="{h:.1f}" rx="{rx}" '
                  f'fill="{fill}" stroke="{stroke}" stroke-width="{sw}" opacity="{op}"{d}/>')
 
-    def text(self, x, y, s, size=14, fill=TEXT, weight=400, anchor="start", mono=False, ls=0, op=1):
+    def text(self, x, y, s, size=14, fill=TEXT, weight=400, anchor="start", mono=False, ls=0, op=1, href=None):
+        """Text element; with `href` it becomes a link (clickable when the SVG is inline or in <object>)."""
         fam = MONO if mono else SANS
         lsa = f' letter-spacing="{ls}"' if ls else ""
-        self.add(f'<text x="{x:.1f}" y="{y:.1f}" font-family="{fam}" font-size="{size}" fill="{fill}" '
-                 f'font-weight="{weight}" text-anchor="{anchor}" opacity="{op}"{lsa}>{esc(s)}</text>')
+        t = (f'<text x="{x:.1f}" y="{y:.1f}" font-family="{fam}" font-size="{size}" fill="{fill}" '
+             f'font-weight="{weight}" text-anchor="{anchor}" opacity="{op}"{lsa}>{esc(s)}</text>')
+        self.add(f'<a href="{esc(href)}" target="_blank">{t}</a>' if href else t)
 
     def icon(self, name, x, y, size):
         if name not in self._icon_cache:
@@ -188,6 +190,7 @@ class SVG:
 
     def render(self):
         return (f'<svg xmlns="http://www.w3.org/2000/svg" width="{W}" height="{H}" viewBox="0 0 {W} {H}">'
+                '<style>a:hover text{text-decoration:underline}</style>'
                 + "".join(self.p) + "</svg>")
 
 
@@ -232,7 +235,8 @@ def addr(x, y, ip, g, color, size=12):
         cw_ = size * 0.6                      # Fira Code advance width
         dx = x + len(ip) * cw_ + cw_ * 0.6
         S.text(dx, y, "·", size, MUTED, 400, mono=True)
-        S.text(dx + cw_ * 1.6, y, name, size, ncol or color, 400, mono=True, op=1 if ncol else 0.85)
+        S.text(dx + cw_ * 1.6, y, name, size, ncol or color, 400, mono=True, op=1 if ncol else 0.85,
+               href=f"https://{name}" if ncol else None)
 
 
 def card(x, y, w, h, color=None, title=None, icons=None, sub_=None, isz=34, tsize=19):
@@ -813,7 +817,7 @@ def chip_apps(g, x, y, w):
         S.icon(a["icon"], x + 14, ry, 17)
         S.text(x + 38, ry + 13, a["name"], 12.5, TEXT, 600)
         if a.get("host"):
-            S.text(x + 140, ry + 13, fqdn(a["host"]), 11, LINK, 500, mono=True)
+            S.text(x + 140, ry + 13, fqdn(a["host"]), 11, LINK, 500, mono=True, href=f"https://{fqdn(a['host'])}")
         else:
             S.text(x + 140, ry + 13, a.get("note", ""), 11.5, MUTED, 400)
     if g.get("docker"):
@@ -841,7 +845,7 @@ def chip(g, x, y, w):
     S.text(nx, y + 37, g.get("note", ""), 11.5, MUTED, 400)
     name, ncol = hostname(g)
     if name:
-        S.text(nx, y + 54, name, 11.5, ncol or MUTED, 500, mono=True)
+        S.text(nx, y + 54, name, 11.5, ncol or MUTED, 500, mono=True, href=f"https://{name}" if ncol else None)
         if g.get("exposure") == "local":
             S.pill(nx + tw(name, 11.5, True) + 8, y + 44, "LAN", MUTED, 9.5, mono=True, pad=4, h=14)
     chip_ids(g, x, y, w, CH)
@@ -900,7 +904,7 @@ def node(n, c, y):
     S.text(x + NW - 10, y + 26, f"CT {n['ct']}", 10.5, FAINT, 500, "end", mono=True)
     S.text(x + NW - 10, y + 46, n["ip"], 10.5, FAINT, 500, "end", mono=True)
     S.text(x + 10, y + 46, n["sub"], 11, MUTED, 400)
-    S.text(x + 10, y + 62, fqdn(n["host"]), 10, LINK, 500, mono=True)
+    S.text(x + 10, y + 62, fqdn(n["host"]), 10, LINK, 500, mono=True, href=f"https://{fqdn(n['host'])}")
 
 
 def arr_node(a, x, y):
@@ -908,7 +912,7 @@ def arr_node(a, x, y):
     S.icon(a["icon"], x + 10, y + 7, 20)
     S.text(x + 36, y + 22, a["name"], 13.5, TEXT, 600)
     S.text(x + NW - 10, y + 22, a["ip"], 12, FAINT, 500, "end", mono=True)
-    S.text(x + 10, y + 38, fqdn(a["host"]), 10, LINK, 500, mono=True)
+    S.text(x + 10, y + 38, fqdn(a["host"]), 10, LINK, 500, mono=True, href=f"https://{fqdn(a['host'])}")
 
 
 def share(sh, x, y):
