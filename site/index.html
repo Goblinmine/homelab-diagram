@@ -1,0 +1,63 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>Homelab</title>
+  <link rel="stylesheet" href="style.css">
+  <script src="data.js" defer></script>
+  <script src="app.js" defer></script>
+</head>
+<body>
+  <header class="top">
+    <div class="brand">
+      <h1 id="title">Homelab</h1>
+      <span id="date" class="muted"></span>
+    </div>
+    <nav class="tabs" role="tablist" aria-label="Views">
+      <button role="tab" data-tab="overview" aria-selected="true">Overview</button>
+      <button role="tab" data-tab="services" aria-selected="false">Services</button>
+      <button role="tab" data-tab="diagram" aria-selected="false">Diagram</button>
+    </nav>
+    <label class="search">
+      <span class="sr-only">Search</span>
+      <input id="q" type="search" placeholder="Search apps, hosts, IPs …" autocomplete="off">
+      <kbd>/</kbd>
+    </label>
+  </header>
+
+  <main>
+    <section id="overview" class="tab-panel" role="tabpanel">
+      <div class="stats" id="stats"></div>
+      <h2 class="section-title">Topology <span class="muted">click a box for details</span></h2>
+      <div class="topo" id="topo">
+        <svg class="wires" id="wires" aria-hidden="true"></svg>
+      </div>
+      <div class="cards3" id="info"></div>
+      <div id="hosts"></div>
+    </section>
+
+    <section id="services" class="tab-panel" role="tabpanel" hidden>
+      <div class="filters" id="filters"></div>
+      <div class="svc-grid" id="svc-grid"></div>
+      <p class="empty muted" id="svc-empty" hidden>Nothing matches.</p>
+    </section>
+
+    <section id="diagram" class="tab-panel" role="tabpanel" hidden>
+      <div class="zoom-bar">
+        <button data-zoom="in" aria-label="Zoom in">+</button>
+        <button data-zoom="out" aria-label="Zoom out">−</button>
+        <button data-zoom="fit">Fit</button>
+        <span class="muted">drag to pan · wheel to zoom · blue hostnames are links</span>
+      </div>
+      <div class="viewport" id="viewport"><div class="canvas" id="canvas"></div></div>
+    </section>
+  </main>
+
+  <div class="scrim" id="scrim" hidden></div>
+  <aside class="drawer" id="drawer" aria-hidden="true" aria-labelledby="drawer-title">
+    <button class="close" id="drawer-close" aria-label="Close">×</button>
+    <div id="drawer-body"></div>
+  </aside>
+</body>
+</html>

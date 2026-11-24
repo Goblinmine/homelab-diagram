@@ -24,7 +24,7 @@ SOURCES = [
 ICON_MAP = {
     "actual": "actual-budget", "adguard": "adguard-home", "alloy": "alloy", "android": "android",
     "authentik": "authentik", "backblaze": "backblaze", "bazarr": "bazarr", "cinny": "cinny",
-    "cloudflare": "cloudflare", "crowdsec": "crowdsec", "discord": "discord", "docker": "docker",
+    "cloudflare": "cloudflare", "crowdsec": "crowdsec", "discord": "discord", "docker": "docker-moby",
     "esphome": "esphome", "forgejo": "forgejo", "fritzbox": "fritzbox", "grafana": "grafana",
     "homeassistant": "home-assistant", "immich": "immich", "jellyfin": "jellyfin",
     "jellystat": "jellystat", "jetkvm": "jetkvm", "loki": "loki", "matrix-l": "matrix-light",

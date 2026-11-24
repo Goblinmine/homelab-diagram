@@ -24,7 +24,12 @@ vlans:   # order = table order
   - {key: "vpn", tag: "WireGuard", name: VPN,   subnet: "10.0.50.0/24",    color: "#39c5cf", note: "split tunnel · LAN-like access, no internet"}
   - {key: "wan", tag: "Fritzbox", name: WAN,   subnet: "192.168.178.0/24", color: "#f85149", note: "untrusted · OPNsense's uplink to the Fritzbox"}
 
+# reverse proxies, matched by hostname suffix: the web page (build_site.py) says which one serves an app
+proxies:
+  - {domain: "{domain}", name: "Traefik", where: "CT 149 · Edge stack"}
+
 internet:
+  note: "semi-static public IPv4"
   speed: {down: "600 Mbit/s", up: "50 Mbit/s"}
   cloud_services:
     - {icon: cloudflare, name: "Cloudflare", note: "DNS · *.{domain} · DNS-01 wildcard cert"}
