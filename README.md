@@ -1,5 +1,6 @@
 # homelab-diagram
 
+[English](README.md) | [Tiếng Việt](README.vi.md)
 The script behind the network diagram of my homelab that I posted on r/homelab. It turns a YAML file describing the lab into a big SVG/PNG diagram in the style of the diagrams you see on r/homelab.
 
 ![Example output](docs/example.png)
